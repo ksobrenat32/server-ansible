@@ -1,0 +1,156 @@
+---
+
+- name: Check for needed tools
+  ansible.builtin.dnf:
+    name:
+      - jq
+      - curl
+      - firewalld
+      - java-17-openjdk-headless
+    state: latest
+
+- name: Create minecraft-server user
+  ansible.builtin.user:
+    name: minecraft-server
+    system: yes
+    home: /opt/minecraft
+
+- name: Open minecraft java port
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  with_items: ['25565/tcp', '25565/udp']
+
+- name: Open minecraft bedrock ipv4 udp port
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: yes
+    state: enabled
+
+  with_items: ['19132/udp', '19133/udp']
+  when: mcserver_type == "paper"
+
+- name: Reload firewalld
+  ansible.posix.firewalld:
+    permanent: yes
+    state: enabled
+
+- name: Create directory structure
+  ansible.builtin.file:
+    owner: minecraft-server
+    recurse: yes
+    state: directory
+    path: "/opt/minecraft/{{ item }}"
+  with_items: ['server', 'mcrcon', 'backup']
+
+- name: Get latest vanilla server download url
+  ansible.builtin.shell: echo $(curl -fsSL $(curl -fsSL 'https://launchermeta.mojang.com/mc/game/version_manifest.json' | jq -r --arg VERSION_TARGET $(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release') '.versions | .[] | select(.id==$VERSION_TARGET) | .url') | jq -r '.downloads.server.url')
+  register: server_url 
+  when: mcserver_type == "vanilla"
+
+- name: Download latest vanilla minecraft server jar
+  ansible.builtin.get_url:
+    url: "{{ server_url.stdout }}"
+    dest: /opt/minecraft/server/server.jar
+    mode: '0740'
+    owner: minecraft-server
+  when: mcserver_type == "vanilla"
+
+- name: Get latest paper server download url
+  ansible.builtin.shell: echo https://papermc.io/api/v2/projects/paper/versions/$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release')/builds/$(curl -fsSL "https://papermc.io/api/v2/projects/paper/versions/$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release')" | jq '.builds[-1]')/downloads/paper-$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release')-$(curl -fsSL "https://papermc.io/api/v2/projects/paper/versions/$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release')" | jq '.builds[-1]').jar
+  register: server_url 
+  when: mcserver_type == "paper"
+
+- name: Download latest paper minecraft server jar
+  ansible.builtin.get_url:
+    url: "{{ server_url.stdout }}"
+    dest: /opt/minecraft/server/server.jar
+    mode: '0740'
+    owner: minecraft-server
+  when: mcserver_type == "paper"
+
+- name: Create plugin directory structure
+  ansible.builtin.file:
+    owner: minecraft-server
+    recurse: yes
+    state: directory
+    path: "/opt/minecraft/server/plugins/Geyser-Spigot/"
+  when: mcserver_type == "paper"
+
+- name: Download latest Geyser plugin
+  ansible.builtin.get_url:
+    url: https://ci.opencollab.dev/job/GeyserMC/job/Geyser/job/master/lastSuccessfulBuild/artifact/bootstrap/spigot/target/Geyser-Spigot.jar
+    dest: /opt/minecraft/server/plugins/Geyser-Spigot.jar
+    mode: '0740'
+    owner: minecraft-server
+  when: mcserver_type == "paper"
+
+- name: Download latest Floodgate plugin
+  ansible.builtin.get_url:
+    url: https://ci.opencollab.dev/job/GeyserMC/job/Floodgate/job/master/lastSuccessfulBuild/artifact/spigot/target/floodgate-spigot.jar 
+    dest: /opt/minecraft/server/plugins/floodgate-spigot.jar
+    mode: '0740'
+    owner: minecraft-server
+  when: mcserver_type == "paper"
+
+- name: Get latest mcrcon download url
+  ansible.builtin.shell: curl -fsSL https://api.github.com/repos/Tiiffi/mcrcon/releases/latest | grep "browser_download_url.*64.tar.gz" | sed 's/"browser_download_url"://g' | sed 's/"//g' | sed 's/ //g'
+  register: mcrcon_url 
+
+- name: Download and unarchive mcrcon
+  ansible.builtin.unarchive:
+    src: '{{ mcrcon_url.stdout }}'
+    dest: /opt/minecraft/mcrcon/
+    remote_src: yes
+    owner: minecraft-server
+
+- name: Generate rcon password
+  ansible.builtin.shell: cat /dev/urandom |  LC_ALL=C sed "s/[^[:alnum:]-]//g" | head -c 32
+  register: rcon_passwd
+
+- name: Accept EULA
+  ansible.builtin.shell: echo "eula=true" >> /opt/minecraft/server/eula.txt
+
+- name: Get max server ram, total ram - 256
+  ansible.builtin.shell: echo $(( $(cat /proc/meminfo | grep MemTotal | awk '{ print $2 }') / 1024 - 256 ))
+  register: max_ram
+
+- name: Copy minecraft server properties
+  ansible.builtin.template:
+    src: templates/minecraft/server.properties.j2
+    dest: /opt/minecraft/server/server.properties
+    owner: minecraft-server
+    mode: '0644'
+
+- name: Copy geyser config
+  ansible.builtin.template:
+    src: templates/minecraft/geyser-config.yml.j2
+    dest: /opt/minecraft/server/plugins/Geyser-Spigot/config.yml
+    owner: minecraft-server
+    mode: '0644'
+  when: mcserver_type == "paper"
+
+- name: Copy minecraft server service
+  ansible.builtin.template:
+    src: templates/minecraft/minecraft-server.service.j2
+    dest: /etc/systemd/system/minecraft-server.service
+    mode: '0644'
+
+- name: Chown minecraft dir
+  ansible.builtin.file:
+    owner: minecraft-server
+    recurse: yes
+    state: directory
+    path: "/opt/minecraft"
+
+- name: Just force systemd to reread configs
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: Enable minecraft-server systemd service
+  ansible.builtin.systemd:
+    name: minecraft-server
+    enabled: yes
+    state: started

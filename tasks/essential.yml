@@ -1,0 +1,94 @@
+---
+
+# --- Packages
+- name: Update packages
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+
+- name: Install required packages
+  ansible.builtin.dnf:
+    name: "{{ packages }}"
+    state: latest
+
+# --- SSH
+- name: Disable root ssh login
+  ansible.builtin.lineinfile:
+    dest: /etc/ssh/sshd_config
+    regexp: "#PermitRootLogin prohibit-password"
+    line: "PermitRootLogin no"
+  register: sshd_config
+
+- name: Disable password authentication
+  ansible.builtin.lineinfile:
+    dest: /etc/ssh/sshd_config
+    regexp: "#PasswordAuthentication yes"
+    line: "PasswordAuthentication no"
+  register: sshd_config
+
+- name: Disable X11 Forwarding
+  ansible.builtin.lineinfile:
+    dest: /etc/ssh/sshd_config
+    regexp: "X11Forwarding yes"
+    line: "X11Forwarding no"
+  register: sshd_config
+
+- name: Disable acepting ssh host lang
+  ansible.builtin.lineinfile:
+    dest: /etc/ssh/sshd_config
+    regexp: "AcceptEnv LANG LC_*"
+    line: "#AcceptEnv LANG LC_*"
+  register: sshd_config
+
+- name: Enable public key authentication
+  ansible.builtin.lineinfile:
+    dest: /etc/ssh/sshd_config
+    regexp: "#PubkeyAuthentication yes"
+    line: "PubkeyAuthentication yes"
+  register: sshd_config
+
+- name: Restart ssh daemon when changes
+  ansible.builtin.systemd:
+    name: sshd
+    enabled: yes
+    state: restarted
+  when: sshd_config.changed
+
+# --- Machine specific
+- name: Set timezone to "{{ timezone }}"
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Change hostname to "{{ hostname }}"
+  ansible.builtin.hostname:
+    name: "{{ hostname }}"
+
+# --- Automatic updates and zram
+
+- name: Install automatic updates and zram
+  ansible.builtin.dnf:
+    name:
+      - dnf-automatic
+      - zram-generator
+    state: latest
+
+- name: Default automatic security updates
+  ansible.builtin.lineinfile:
+    dest: /etc/dnf/automatic.conf
+    regexp: "upgrade_type = default"
+    line: "upgrade_type = security"
+  register: dnf_automatic
+
+- name: Enable automatic security updates
+  ansible.builtin.lineinfile:
+    dest: /etc/dnf/automatic.conf
+    regexp: "apply_updates = no"
+    line: "apply_updates = yes"
+  register: dnf_automatic
+
+- name: Enable dnf automatic service
+  ansible.builtin.systemd:
+    name: dnf-automatic.timer
+    enabled: yes
+    state: started
+  when: dnf_automatic.changed

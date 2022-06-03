@@ -1,0 +1,67 @@
+---
+
+- name: Check for needed tools
+  ansible.builtin.dnf:
+    name:
+      - tar
+      - jq
+      - curl
+    state: latest
+
+- name: Stop the minecraft-server service
+  ansible.builtin.systemd:
+    name: minecraft-server.service
+    state: stopped
+
+- name: Make a backup tar of the actual server
+  community.general.archive:
+    path: /opt/minecraft/server
+    dest: /opt/minecraft/backup/{{ansible_date_time.date}}.tgz
+    format: gz
+
+- name: Get latest vanilla server download url
+  ansible.builtin.shell: echo $(curl -fsSL $(curl -fsSL 'https://launchermeta.mojang.com/mc/game/version_manifest.json' | jq -r --arg VERSION_TARGET $(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release') '.versions | .[] | select(.id==$VERSION_TARGET) | .url') | jq -r '.downloads.server.url')
+  register: server_url 
+  when: mcserver_type == "vanilla"
+
+- name: Download latest vanilla minecraft server jar
+  ansible.builtin.get_url:
+    url: "{{ server_url.stdout }}"
+    dest: /opt/minecraft/server/server.jar
+    mode: '0740'
+    owner: minecraft-server
+  when: mcserver_type == "vanilla"
+
+- name: Get latest paper server download url
+  ansible.builtin.shell: echo https://papermc.io/api/v2/projects/paper/versions/$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release')/builds/$(curl -fsSL "https://papermc.io/api/v2/projects/paper/versions/$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release')" | jq '.builds[-1]')/downloads/paper-$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release')-$(curl -fsSL "https://papermc.io/api/v2/projects/paper/versions/$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest.json" | jq -r '.latest.release')" | jq '.builds[-1]').jar
+  register: server_url
+  when: mcserver_type == "paper"
+
+- name: Download latest paper minecraft server jar
+  ansible.builtin.get_url:
+    url: "{{ server_url.stdout }}"
+    dest: /opt/minecraft/server/server.jar
+    mode: '0740'
+    owner: minecraft-server
+  when: mcserver_type == "paper"
+
+- name: Download latest Geyser plugin
+  ansible.builtin.get_url:
+    url: https://ci.opencollab.dev/job/GeyserMC/job/Geyser/job/master/lastSuccessfulBuild/artifact/bootstrap/spigot/target/Geyser-Spigot.jar
+    dest: /opt/minecraft/server/plugins/Geyser-Spigot.jar
+    mode: '0740'
+    owner: minecraft-server
+  when: mcserver_type == "paper"
+
+- name: Download latest Floodgate plugin
+  ansible.builtin.get_url:
+    url: https://ci.opencollab.dev/job/GeyserMC/job/Floodgate/job/master/lastSuccessfulBuild/artifact/spigot/target/floodgate-spigot.jar 
+    dest: /opt/minecraft/server/plugins/floodgate-spigot.jar
+    mode: '0740'
+    owner: minecraft-server
+  when: mcserver_type == "paper"
+
+- name: Start the minecraft-server service
+  ansible.builtin.systemd:
+    name: minecraft-server.service
+    state: started
