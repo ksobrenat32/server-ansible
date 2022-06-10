@@ -1,0 +1,6 @@
+---
+# Server type (vanilla or paper)
+mcserver_type: vanilla
+
+# Name of the server on clients
+mcserver_name: Minecraft Server

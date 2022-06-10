@@ -1,0 +1,11 @@
+---
+# Packages you want to install
+packages:
+      - vim
+      - firewalld
+
+# The timezone of your server
+timezone: America/Mexico_City
+
+# The hostname of yout server
+hostname: test-server
