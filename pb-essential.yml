@@ -1,0 +1,8 @@
+---
+
+- hosts: all
+  become: yes
+
+  tasks:
+    - name: Install tasks, essential for security
+      import_tasks: tasks/essential.yml

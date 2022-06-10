@@ -15,6 +15,12 @@
     system: yes
     home: /opt/minecraft
 
+- name: Enable firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: yes
+    state: started
+
 - name: Open minecraft java port
   ansible.posix.firewalld:
     port: "{{ item }}"

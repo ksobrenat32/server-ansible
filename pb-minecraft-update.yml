@@ -1,0 +1,11 @@
+---
+
+- hosts: minecraft
+  become: true
+
+  tasks:
+    - name: Install tasks, essential for security
+      import_tasks: tasks/essential.yml
+
+    - name: Minecraft server update
+      import_tasks: tasks/minecraft-update.yml

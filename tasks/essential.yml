@@ -65,6 +65,12 @@
 
 # --- Automatic updates and zram
 
+- name: Enable EPEL
+  ansible.builtin.dnf:
+    name:
+      - epel-release
+    state: latest
+
 - name: Install automatic updates and zram
   ansible.builtin.dnf:
     name:
